@@ -49,6 +49,14 @@ export class TwoSignTrigger implements INodeType {
 				responseMode: 'onReceived',
 				path: 'webhook',
 			},
+			// חתימה ירוקה בודקים שהכתובת זמינה לפני שהם שומרים אותה, בבקשת GET (נבדק 24.11.2026:
+			// בלי זה השמירה נכשלת ב"לא ניתן להגיע לכתובת"). עונים OK, בלי להפעיל את התהליך.
+			{
+				name: 'setup',
+				httpMethod: 'GET',
+				responseMode: 'onReceived',
+				path: 'webhook',
+			},
 		],
 		properties: [
 			{
@@ -100,6 +108,12 @@ export class TwoSignTrigger implements INodeType {
 		const query = this.getQueryData() as IDataObject;
 		const res = this.getResponseObject();
 
+		// בדיקת הכתובת של חתימה ירוקה (GET): רק עונים שהכתובת עובדת
+		if (this.getWebhookName() === 'setup') {
+			res.status(200).send('OK');
+			return { noWebhookResponse: true };
+		}
+
 		if (secret && String(query.key ?? '') !== secret) {
 			res.status(401).send('Unauthorized');
 			return { noWebhookResponse: true };
@@ -121,14 +135,18 @@ export class TwoSignTrigger implements INodeType {
 			data.signingUrl = SIGNING_URL + data.taskGuid;
 		}
 
+		// חתימה ירוקה מצפה לתשובה 200 עם הטקסט OK. עונים ישירות, כי n8n מתעלם מ-webhookResponse
+		// כשהתשובה נשלחת מיד עם הקבלה (נבדק 24.11.2026: חזר "firstEntryJson" במקום "OK").
+		res.status(200).send('OK');
+
 		const declined =
 			typeof data.taskDeclineReason === 'string' && data.taskDeclineReason.trim() !== '';
 		if ((event === 'declined' && !declined) || (event === 'notDeclined' && declined)) {
-			return { webhookResponse: 'OK' };
+			return { noWebhookResponse: true };
 		}
 
 		return {
-			webhookResponse: 'OK',
+			noWebhookResponse: true,
 			workflowData: [this.helpers.returnJsonArray(data)],
 		};
 	}

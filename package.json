@@ -1,6 +1,6 @@
 {
 	"name": "n8n-nodes-2sign",
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"description": "נוד לחתימה ירוקה (2Sign): שליחת מסמכים לחתימה דיגיטלית, סבבי חתימות, קבלת המסמך החתום, והתחלת תהליך כשמסמך נחתם",
 	"license": "MIT",
 	"homepage": "https://github.com/b0534142785-netizen/n8n-nodes-2sign",
