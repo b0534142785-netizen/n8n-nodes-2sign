@@ -493,7 +493,7 @@ function makeWebhookCtx(params, body, query = {}, webhookName = 'default') {
 
 test('הודעה אוטומטית: פענוח signaturePositions ו-AdditionalParams', async () => {
 	const positions = Buffer.from(JSON.stringify([{ X: 1 }])).toString('base64');
-	const ctx = makeWebhookCtx({ event: 'all', secret: '' }, {
+	const ctx = makeWebhookCtx({ events: [], secret: '' }, {
 		taskId: '7386051', taskGuid: 'G1', isTaskGroup: 'false', taskDeclineReason: '', signaturePositions: positions, AdditionalParams: '{"crmId":77}',
 	});
 	const res = await new TwoSignTrigger().webhook.call(ctx);
@@ -508,30 +508,58 @@ test('הודעה אוטומטית: פענוח signaturePositions ו-AdditionalPa
 	assert.equal(data.signingUrl, 'https://app.2sign.co.il/he/Clients/DocSignature?guid=G1');
 });
 
-test('אמיתי: בדיקת הכתובת של חתימה ירוקה (GET) עונה OK ולא מפעילה את התהליך', async () => {
+test('אמיתי: בדיקת הכתובת של חתימה ירוקה (HEAD) עונה OK ולא מפעילה את התהליך', async () => {
 	const { TwoSignTrigger: T } = require('../dist/nodes/TwoSignTrigger/TwoSignTrigger.node.js');
 	const methods = new T().description.webhooks.map((w) => `${w.name}:${w.httpMethod}:${w.path}`);
-	assert.deepEqual(methods, ['default:POST:webhook', 'setup:GET:webhook']);
-	const ctx = makeWebhookCtx({ event: 'all', secret: 'abc' }, {}, {}, 'setup');
+	assert.deepEqual(methods, ['default:POST:webhook', 'setup:HEAD:webhook', 'setup:GET:webhook']);
+	const ctx = makeWebhookCtx({ events: [], secret: 'abc' }, {}, {}, 'setup');
 	const res = await new T().webhook.call(ctx);
 	assert.equal(ctx.sent.status, 200);
 	assert.equal(ctx.sent.text, 'OK');
 	assert.equal(res.workflowData, undefined);
 });
 
+// ההודעות האמיתיות שחתימה ירוקה שלחו (24.11.2026), כמו שהגיעו (form-urlencoded)
+const realViewed = { taskGuid: 'G9', taskUserId: 'U', taskUserEmail: 'a@b.c', taskName: 'בדיקה', isTaskGroup: 'false', viewedOn: '2026-11-24T17:03:30.0428150Z', clientMails: 'a@b.c; ' };
+const realSigned = { taskId: '7551994', taskGuid: 'G9', taskUserId: 'U', taskUserEmail: 'a@b.c', taskName: 'בדיקה', isTaskGroup: 'false', taskDeclineReason: '', clientMails: 'a@b.c; ' };
+
+test('אמיתי: זיהוי סוג ההודעה (נפתח, נחתם, סירב)', async () => {
+	const { detectEvent } = require('../dist/nodes/TwoSignTrigger/TwoSignTrigger.node.js');
+	assert.equal(detectEvent(realViewed), 'viewed');
+	assert.equal(detectEvent(realSigned), 'signed');
+	assert.equal(detectEvent({ ...realSigned, taskDeclineReason: 'לא מסכים' }), 'declined');
+	assert.equal(detectEvent({ taskGuid: 'G' }), 'created');
+	assert.equal(detectEvent(realViewed, { event: 'signed' }), 'signed', 'אפשר לקבוע ידנית בכתובת');
+	assert.equal(detectEvent({ ...realSigned, taskDeclineReason: 'לא' }, { event: 'signed' }), 'declined');
+});
+
+test('אמיתי: סינון לפי סוג ההודעה, והשדה event יוצא מהנוד', async () => {
+	let ctx = makeWebhookCtx({ events: ['signed'], secret: '' }, realViewed);
+	let res = await new TwoSignTrigger().webhook.call(ctx);
+	assert.equal(res.workflowData, undefined, 'פתיחה לא מפעילה כשבחרו רק נחתם');
+	assert.equal(ctx.sent.text, 'OK', 'גם הודעה שסוננה מקבלת OK');
+
+	ctx = makeWebhookCtx({ events: ['signed'], secret: '' }, realSigned);
+	res = await new TwoSignTrigger().webhook.call(ctx);
+	const data = res.workflowData[0][0].json;
+	assert.equal(data.event, 'signed');
+	assert.equal(data.isTaskGroup, false);
+	assert.equal(data.signingUrl, 'https://app.2sign.co.il/he/Clients/DocSignature?guid=G9');
+});
+
 test('הודעה אוטומטית: מפתח סודי וסינון סירוב', async () => {
-	let ctx = makeWebhookCtx({ event: 'all', secret: 'abc' }, { taskGuid: 'G' }, { key: 'wrong' });
+	let ctx = makeWebhookCtx({ events: [], secret: 'abc' }, { taskGuid: 'G' }, { key: 'wrong' });
 	let res = await new TwoSignTrigger().webhook.call(ctx);
 	assert.equal(res.noWebhookResponse, true);
 	assert.equal(ctx.sent.status, 401);
 
-	ctx = makeWebhookCtx({ event: 'declined', secret: 'abc' }, { taskGuid: 'G', taskDeclineReason: '' }, { key: 'abc' });
+	ctx = makeWebhookCtx({ events: ['declined'], secret: 'abc' }, { taskGuid: 'G', taskDeclineReason: '' }, { key: 'abc' });
 	res = await new TwoSignTrigger().webhook.call(ctx);
 	assert.equal(res.workflowData, undefined);
 	assert.equal(ctx.sent.status, 200);
 	assert.equal(ctx.sent.text, 'OK');
 
-	ctx = makeWebhookCtx({ event: 'declined', secret: '' }, { taskGuid: 'G', taskDeclineReason: 'לא מסכים' });
+	ctx = makeWebhookCtx({ events: ['declined'], secret: '' }, { taskGuid: 'G', taskDeclineReason: 'לא מסכים' });
 	res = await new TwoSignTrigger().webhook.call(ctx);
 	assert.equal(res.workflowData[0][0].json.taskDeclineReason, 'לא מסכים');
 });

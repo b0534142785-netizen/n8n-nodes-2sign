@@ -30,13 +30,33 @@ function parseJson(value: unknown): unknown {
 	}
 }
 
+/**
+ * איזו הודעה הגיעה. בהודעה עצמה אין שדה כזה, אז מזהים לפי השדות (נבדק מול השרת, 24.11.2026):
+ * - נפתח: יש viewedOn.
+ * - נחתם או סירב: יש taskDeclineReason (ריק = נחתם, מלא = סירב), וגם taskId.
+ * - נוצרה משימה: לא נבדק (לא נשלחה כשהמשימה נוצרה מהאתר). כל השאר.
+ * אפשר גם לקבוע ידנית, עם ?event=signed בסוף הכתובת.
+ */
+export function detectEvent(body: IDataObject, query: IDataObject = {}): string {
+	const fromQuery = String(query.event ?? '').toLowerCase();
+	if (['signed', 'declined', 'viewed', 'created'].includes(fromQuery)) {
+		if (fromQuery === 'signed' && String(body.taskDeclineReason ?? '').trim()) return 'declined';
+		return fromQuery;
+	}
+	if (body.viewedOn) return 'viewed';
+	if ('taskDeclineReason' in body) {
+		return String(body.taskDeclineReason ?? '').trim() ? 'declined' : 'signed';
+	}
+	return 'created';
+}
+
 export class TwoSignTrigger implements INodeType {
 	description: INodeTypeDescription = {
 		displayName: 'חתימה ירוקה - כשמשהו קורה',
 		name: 'twoSignTrigger',
 		icon: { light: 'file:twosign.svg', dark: 'file:twosign.dark.svg' },
 		group: ['trigger'],
-		subtitle: '={{$parameter["event"]}}',
+		subtitle: '={{$parameter["events"].join(", ")}}',
 		version: 1,
 		description: 'מתחיל תהליך כשחתימה ירוקה שולחת הודעה אוטומטית: מסמך נחתם או שמצב המשימה השתנה',
 		defaults: { name: 'חתימה ירוקה - כשמשהו קורה' },
@@ -49,8 +69,15 @@ export class TwoSignTrigger implements INodeType {
 				responseMode: 'onReceived',
 				path: 'webhook',
 			},
-			// חתימה ירוקה בודקים שהכתובת זמינה לפני שהם שומרים אותה, בבקשת GET (נבדק 24.11.2026:
+			// חתימה ירוקה בודקים שהכתובת זמינה לפני שהם שומרים אותה, בבקשת HEAD (נבדק 24.11.2026:
 			// בלי זה השמירה נכשלת ב"לא ניתן להגיע לכתובת"). עונים OK, בלי להפעיל את התהליך.
+			// GET נשאר למקרה שבודקים את הכתובת בדפדפן.
+			{
+				name: 'setup',
+				httpMethod: 'HEAD',
+				responseMode: 'onReceived',
+				path: 'webhook',
+			},
 			{
 				name: 'setup',
 				httpMethod: 'GET',
@@ -61,34 +88,37 @@ export class TwoSignTrigger implements INodeType {
 		properties: [
 			{
 				displayName:
-					'איך מחברים: מעתיקים את הכתובת שלמעלה (Production URL), ובחתימה ירוקה נכנסים ל: מנוי ← הגדרות ← הגדרות חשבון ← הגדרות מתקדמות ← הגדרות API נוספות. מדביקים את הכתובת ושומרים. אפשר להגדיר כתובת נפרדת גם לכל תבנית. הכתובת חייבת להתחיל ב-https.',
+					'איך מחברים: מפרסמים את התהליך, ומעתיקים את הכתובת שלמעלה (Production URL). בחתימה ירוקה: הגדרות ← API ← הגדרות API נוספות. יש שם שלוש כתובות: לאחר הקמת משימה, לאחר חיתום, ועבור מסמך נצפה. מדביקים את אותה כתובת בשלושתן (או רק במה שצריך) ושומרים. הנוד מזהה לבד איזו הודעה הגיעה.',
 				name: 'setupNotice',
 				type: 'notice',
 				default: '',
 			},
 			{
-				displayName: 'מתי להמשיך',
-				name: 'event',
-				type: 'options',
+				displayName: 'על מה להפעיל את התהליך',
+				name: 'events',
+				type: 'multiOptions',
 				options: [
 					{
-						name: 'בכל הודעה',
-						value: 'all',
+						name: 'המסמך נחתם',
+						value: 'signed',
 					},
 					{
-						name: 'רק כשאין סיבת סירוב',
-						value: 'notDeclined',
-						description: 'ההודעות שבהן השדה taskDeclineReason ריק (בדרך כלל: נחתם)',
-					},
-					{
-						name: 'רק כשהחותם סירב',
+						name: 'החותם סירב לחתום',
 						value: 'declined',
-						description: 'ההודעות שבהן יש סיבת סירוב (taskDeclineReason)',
+					},
+					{
+						name: 'החותם פתח את המסמך',
+						value: 'viewed',
+					},
+					{
+						name: 'נוצרה משימה',
+						value: 'created',
+						description:
+							'לא נשלחת כשיוצרים משימה מהאתר של חתימה ירוקה (נבדק). כנראה רק כשיוצרים דרך ה-API.',
 					},
 				],
-				default: 'all',
-				description:
-					'בתיעוד של חתימה ירוקה אין רשימה של סוגי ההודעות, ולכן הסינון לפי סיבת הסירוב בלבד',
+				default: ['signed', 'declined', 'viewed', 'created'],
+				description: 'סוג ההודעה נכתב גם בשדה event שיוצא מהנוד',
 			},
 			{
 				displayName: 'מפתח סודי בכתובת (לא חובה)',
@@ -104,7 +134,7 @@ export class TwoSignTrigger implements INodeType {
 
 	async webhook(this: IWebhookFunctions): Promise<IWebhookResponseData> {
 		const secret = this.getNodeParameter('secret', '') as string;
-		const event = this.getNodeParameter('event', 'all') as string;
+		const events = this.getNodeParameter('events', []) as string[];
 		const query = this.getQueryData() as IDataObject;
 		const res = this.getResponseObject();
 
@@ -139,9 +169,9 @@ export class TwoSignTrigger implements INodeType {
 		// כשהתשובה נשלחת מיד עם הקבלה (נבדק 24.11.2026: חזר "firstEntryJson" במקום "OK").
 		res.status(200).send('OK');
 
-		const declined =
-			typeof data.taskDeclineReason === 'string' && data.taskDeclineReason.trim() !== '';
-		if ((event === 'declined' && !declined) || (event === 'notDeclined' && declined)) {
+		const event = detectEvent(raw, query);
+		data.event = event;
+		if (events.length && !events.includes(event)) {
 			return { noWebhookResponse: true };
 		}
 
