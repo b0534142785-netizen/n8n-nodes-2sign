@@ -1,0 +1,58 @@
+{
+	"name": "n8n-nodes-2sign",
+	"version": "0.1.0",
+	"description": "נוד לחתימה ירוקה (2Sign): שליחת מסמכים לחתימה דיגיטלית, סבבי חתימות, קבלת המסמך החתום, והתחלת תהליך כשמסמך נחתם",
+	"license": "MIT",
+	"homepage": "https://github.com/b0534142785-netizen/n8n-nodes-2sign",
+	"keywords": [
+		"n8n-community-node-package",
+		"n8n",
+		"2sign",
+		"green-signature",
+		"esignature",
+		"digital-signature",
+		"israel"
+	],
+	"author": {
+		"name": "b0534142785-netizen",
+		"email": "b0534142785@gmail.com"
+	},
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/b0534142785-netizen/n8n-nodes-2sign.git"
+	},
+	"scripts": {
+		"build": "n8n-node build",
+		"build:watch": "tsc --watch",
+		"dev": "n8n-node dev",
+		"lint": "n8n-node lint",
+		"lint:fix": "n8n-node lint --fix",
+		"release": "n8n-node release",
+		"prepublishOnly": "n8n-node prerelease",
+		"test": "node test/offline.test.js"
+	},
+	"files": [
+		"dist"
+	],
+	"n8n": {
+		"n8nNodesApiVersion": 1,
+		"strict": false,
+		"credentials": [
+			"dist/credentials/TwoSignGreenApi.credentials.js"
+		],
+		"nodes": [
+			"dist/nodes/TwoSign/TwoSign.node.js",
+			"dist/nodes/TwoSignTrigger/TwoSignTrigger.node.js"
+		]
+	},
+	"devDependencies": {
+		"@n8n/node-cli": "*",
+		"eslint": "9.32.0",
+		"prettier": "3.6.2",
+		"release-it": "^21.1.0",
+		"typescript": "5.9.2"
+	},
+	"peerDependencies": {
+		"n8n-workflow": "*"
+	}
+}
